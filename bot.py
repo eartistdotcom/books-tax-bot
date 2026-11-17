@@ -18,6 +18,17 @@ SAMPLES = (
     "Vodacom, R899.00, 14 Nov 2026, phone and data",
 )
 
+REPLY_LABEL_COMMANDS = {
+    "📒 books": "books",
+    "books": "books",
+    "🧾 vat": "vat",
+    "vat": "vat",
+    "📊 tax report": "pack",
+    "tax report": "pack",
+    "❓ help": "help",
+    "help": "help",
+}
+
 SELFTEST_CONN = None
 SELFTEST_MODE = False
 
@@ -47,13 +58,24 @@ def menu_keyboard():
             ],
             [
                 {"text": "VAT this month", "callback_data": "cmd:vat"},
-                {"text": "Tax pack (CSV)", "callback_data": "cmd:pack"},
+                {"text": "Download tax report", "callback_data": "cmd:pack"},
             ],
             [
                 {"text": "Help", "callback_data": "cmd:help"},
                 {"text": "Clear", "callback_data": "cmd:clear"},
             ],
         ]
+    }
+
+
+def reply_keyboard():
+    return {
+        "keyboard": [
+            [{"text": "📒 Books"}, {"text": "🧾 VAT"}],
+            [{"text": "📊 Tax report"}, {"text": "❓ Help"}],
+        ],
+        "resize_keyboard": True,
+        "is_persistent": True,
     }
 
 
@@ -82,6 +104,18 @@ def entries_for(month=None):
         return store.list_entries(conn, month)
     finally:
         conn.close()
+
+
+def no_receipts_response():
+    return (
+        "No receipts yet.",
+        {
+            "inline_keyboard": [
+                [{"text": "Record a sample receipt", "callback_data": "cmd:examples"}]
+            ]
+        },
+        None,
+    )
 
 
 def record_receipt(line):
@@ -115,13 +149,18 @@ def record_receipt(line):
         f"VAT: {format_rands(entry['vat_cents'])}\n"
         f"Date: {entry['date']}"
     )
-    return text, menu_keyboard(), None
+    keyboard = {
+        "inline_keyboard": [
+            [{"text": "See the month", "callback_data": "cmd:vat"}]
+        ]
+    }
+    return text, keyboard, None
 
 
 def books_response():
     entries = entries_for()
     if not entries:
-        return "No entries yet.", menu_keyboard(), None
+        return no_receipts_response()
 
     headers = ("date", "vendor", "gross", "vat")
     rows = [
@@ -150,6 +189,9 @@ def books_response():
 def vat_response():
     month = current_month()
     entries = entries_for(month)
+    if not entries:
+        return no_receipts_response()
+
     gross = sum(entry[4] for entry in entries)
     vat = sum(entry[6] for entry in entries)
     text = (
@@ -189,14 +231,28 @@ def pack_response():
     csv_text = make_taxpack(entries)
     filename = "taxpack.csv"
     if not SELFTEST_MODE:
-        with open(os.path.join(BASE_DIR, filename), "w", newline="", encoding="utf-8") as handle:
+        with open(
+            os.path.join(BASE_DIR, filename), "w", newline="", encoding="utf-8"
+        ) as handle:
             handle.write(csv_text)
 
     return (
-        f"Tax pack saved to {filename} ({len(entries)} rows).",
+        f"Download tax report ({len(entries)} rows).",
         menu_keyboard(),
         (filename, csv_text.encode("utf-8")),
     )
+
+
+def delete_database():
+    if SELFTEST_CONN is not None:
+        SELFTEST_CONN.execute("DELETE FROM entries")
+        SELFTEST_CONN.commit()
+        return
+
+    try:
+        os.remove(DB_PATH)
+    except FileNotFoundError:
+        pass
 
 
 def handle_command(command):
@@ -210,13 +266,20 @@ def handle_command(command):
         return "Choose a sample receipt to record:", examples_keyboard(), None
     if command == "help":
         return help_text(), menu_keyboard(), None
-    if command in ("clear", "start"):
+    if command == "clear":
+        delete_database()
+        return "Choose an option:", menu_keyboard(), None
+    if command == "start":
         return "Choose an option:", menu_keyboard(), None
     return "Unknown command. Send /help for instructions.", menu_keyboard(), None
 
 
 def handle_text(text):
     stripped = text.strip()
+    reply_command = REPLY_LABEL_COMMANDS.get(stripped.casefold())
+    if reply_command:
+        return handle_command(reply_command)
+
     if stripped.startswith("/"):
         command = stripped.split()[0][1:].split("@", 1)[0].lower()
         return handle_command(command)
@@ -292,6 +355,18 @@ def send_document(token, chat_id, filename, content):
     return result["result"]
 
 
+def send_tax_report_confirmation(token, chat_id):
+    api_request(
+        token,
+        "sendMessage",
+        {
+            "chat_id": chat_id,
+            "text": "Your tax report is attached above. It opens in Excel or Google Sheets.",
+            "reply_markup": menu_keyboard(),
+        },
+    )
+
+
 def send_response(token, chat_id, result):
     text, keyboard, document = result
     payload = {
@@ -303,6 +378,7 @@ def send_response(token, chat_id, result):
     if document is not None:
         filename, content = document
         send_document(token, chat_id, filename, content)
+        send_tax_report_confirmation(token, chat_id)
 
 
 def process_update(token, update):
@@ -342,11 +418,24 @@ def process_update(token, update):
         if document is not None:
             filename, content = document
             send_document(token, chat.get("id"), filename, content)
+            send_tax_report_confirmation(token, chat.get("id"))
         return
 
     message = update.get("message")
     if message and isinstance(message.get("text"), str):
-        result = handle_text(message["text"])
+        text = message["text"]
+        if text.strip().split()[0:1] == ["/start"]:
+            api_request(
+                token,
+                "sendMessage",
+                {
+                    "chat_id": message["chat"]["id"],
+                    "text": "Use the buttons below or choose a menu option.",
+                    "reply_markup": reply_keyboard(),
+                },
+            )
+
+        result = handle_text(text)
         send_response(token, message["chat"]["id"], result)
         print(f"answered update {update_id}", flush=True)
 
@@ -384,7 +473,7 @@ def startup(token):
                     "commands": [
                         {"command": "books", "description": "List recorded receipts"},
                         {"command": "vat", "description": "Show this month's VAT"},
-                        {"command": "pack", "description": "Create a CSV tax pack"},
+                        {"command": "pack", "description": "Download tax report"},
                         {"command": "examples", "description": "Choose a sample receipt"},
                         {"command": "clear", "description": "Show the menu"},
                         {"command": "help", "description": "Show usage help"},
@@ -430,6 +519,10 @@ def selftest():
         for command in ("books", "vat", "pack", "examples", "clear", "help"):
             result = handle_text(f"/{command}")
             print(f"/{command}:\n{result[0]}")
+
+        for label in ("📒 Books", "🧾 VAT", "📊 Tax report", "❓ Help"):
+            result = handle_text(label)
+            print(f"{label}:\n{result[0]}")
 
         for index in range(len(SAMPLES)):
             result = handle_callback_data(f"ex:{index}")
