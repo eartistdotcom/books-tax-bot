@@ -37,9 +37,15 @@ def print_books(month=None):
         print("no entries yet")
         return 0
 
-    headers = ("date", "vendor", "gross", "vat")
+    headers = ("date", "dir", "vendor", "gross", "vat")
     rows = [
-        (entry[1], entry[2], format_rands(entry[4]), format_rands(entry[6]))
+        (
+            entry[1],
+            "SALE" if entry[9] == "out" else "BUY",
+            entry[2],
+            format_rands(entry[4]),
+            format_rands(entry[6]),
+        )
         for entry in entries
     ]
     widths = [
@@ -55,13 +61,26 @@ def print_books(month=None):
 
 def print_vat(month):
     entries = month_entries(month)
-    gross = sum(entry[4] for entry in entries)
-    vat = sum(entry[6] for entry in entries)
+    sales = [entry for entry in entries if entry[9] == "out"]
+    purchases = [entry for entry in entries if entry[9] == "in"]
 
-    print(f"month         {month}")
-    print(f"gross sales   {format_rands(gross)}")
-    print(f"output VAT    {format_rands(vat)}")
-    print(f"entries       {len(entries)}")
+    sales_gross = sum(entry[4] for entry in sales)
+    output_vat = sum(entry[6] for entry in sales)
+    purchases_gross = sum(entry[4] for entry in purchases)
+    input_vat = sum(entry[6] for entry in purchases)
+
+    print(f"month             {month}")
+    print(f"sales             {len(sales)}")
+    print(f"gross sales       {format_rands(sales_gross)}")
+    print(f"output VAT        {format_rands(output_vat)}")
+    print(f"purchases         {len(purchases)}")
+    print(f"gross purchases   {format_rands(purchases_gross)}")
+    print(f"input VAT         {format_rands(input_vat)}")
+
+    if output_vat >= input_vat:
+        print(f"net VAT owed      {format_rands(output_vat - input_vat)}")
+    else:
+        print(f"net VAT refundable {format_rands(input_vat - output_vat)}")
     return 0
 
 
@@ -70,12 +89,13 @@ def write_taxpack(month, out):
     with open(out, "w", newline="", encoding="utf-8") as handle:
         writer = csv.writer(handle)
         writer.writerow(
-            ["date", "vendor", "description", "net_zar", "vat_zar", "gross_zar"]
+            ["date", "kind", "vendor", "description", "net_zar", "vat_zar", "gross_zar"]
         )
         for entry in entries:
             writer.writerow(
                 [
                     entry[1],
+                    entry[9],
                     entry[2],
                     entry[3],
                     format_zar(entry[5]),
@@ -88,9 +108,9 @@ def write_taxpack(month, out):
     return 0
 
 
-def add_line(line):
+def add_line(line, sale=False):
     try:
-        entry = parse_receipt(line)
+        entry = parse_receipt(line, kind="out" if sale else "in")
     except ValueError as error:
         print(error)
         return 2
@@ -117,6 +137,8 @@ def demo():
     ):
         add_line(line)
 
+    add_line("Dlamini Plumbing, R5,750.00, 17 Nov 2026, invoice 22", sale=True)
+
     month = current_month()
     print()
     print_books(month)
@@ -133,6 +155,7 @@ def main():
 
     add_parser = subparsers.add_parser("add")
     add_parser.add_argument("receipt", help="receipt line to record")
+    add_parser.add_argument("--sale", action="store_true", help="record this as a sale")
 
     books_parser = subparsers.add_parser("books")
     books_parser.add_argument("--month", help='filter by month, e.g. "2026-11"')
@@ -149,7 +172,7 @@ def main():
     args = parser.parse_args()
 
     if args.command == "add":
-        return add_line(args.receipt)
+        return add_line(args.receipt, sale=args.sale)
     if args.command == "books":
         return print_books(args.month)
     if args.command == "vat":

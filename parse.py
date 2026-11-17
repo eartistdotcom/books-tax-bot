@@ -16,7 +16,10 @@ def _parse_date(value):
     raise ValueError(f"invalid date: {value}")
 
 
-def parse_receipt(line):
+def parse_receipt(line, kind="in"):
+    if kind not in ("in", "out"):
+        raise ValueError("kind must be 'in' or 'out'")
+
     fields = [part.strip() for part in line.split(",")]
 
     # Find the date field so commas in a thousands-formatted amount (or
@@ -53,6 +56,7 @@ def parse_receipt(line):
         "gross_cents": gross_cents,
         "net_cents": net_cents,
         "vat_cents": vat_cents,
+        "kind": kind,
     }
 
 

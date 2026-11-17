@@ -16,26 +16,38 @@ def connect(path="books.db"):
             net_cents INTEGER,
             vat_cents INTEGER,
             hash TEXT UNIQUE,
-            created TEXT
+            created TEXT,
+            kind TEXT DEFAULT 'in'
         )
         """
     )
+
+    columns = {
+        row[1] for row in conn.execute("PRAGMA table_info(entries)").fetchall()
+    }
+    if "kind" not in columns:
+        conn.execute("ALTER TABLE entries ADD COLUMN kind TEXT DEFAULT 'in'")
+
+    conn.execute("UPDATE entries SET kind = 'in' WHERE kind IS NULL")
     conn.commit()
     return conn
 
 
 def insert_entry(conn, entry_dict):
+    kind = entry_dict.get("kind", "in")
     entry_hash = hashlib.sha256(
-        f"{entry_dict['date']}|{entry_dict['vendor']}|{entry_dict['gross_cents']}".encode(
-            "utf-8"
-        )
+        (
+            f"{entry_dict['date']}|{entry_dict['vendor']}|"
+            f"{entry_dict['gross_cents']}|{kind}"
+        ).encode("utf-8")
     ).hexdigest()
 
     cursor = conn.execute(
         """
         INSERT OR IGNORE INTO entries (
-            date, vendor, description, gross_cents, net_cents, vat_cents, hash, created
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            date, vendor, description, gross_cents, net_cents, vat_cents,
+            hash, created, kind
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             entry_dict["date"],
@@ -46,6 +58,7 @@ def insert_entry(conn, entry_dict):
             entry_dict["vat_cents"],
             entry_hash,
             datetime.now().isoformat(),
+            kind,
         ),
     )
     conn.commit()
