@@ -197,10 +197,11 @@ def books_response():
     if not entries:
         return no_receipts_response()
 
-    headers = ("date", "vendor", "gross", "vat")
+    headers = ("date", "dir", "vendor", "gross", "vat")
     rows = [
         (
             str(entry[1]),
+            "SALE" if entry[9] == "out" else "BUY",
             str(entry[2]),
             format_rands(entry[4]),
             format_rands(entry[6]),
@@ -212,10 +213,10 @@ def books_response():
         for index in range(len(headers))
     ]
     lines = [
-        "  ".join(headers[index].ljust(widths[index]) for index in range(4))
+        "  ".join(headers[index].ljust(widths[index]) for index in range(5))
     ]
     lines.extend(
-        "  ".join(row[index].ljust(widths[index]) for index in range(4))
+        "  ".join(row[index].ljust(widths[index]) for index in range(5))
         for row in rows
     )
     return "\n".join(lines), menu_keyboard(), None
@@ -232,11 +233,14 @@ def vat_response():
     purchases_gross = sum(entry[4] for entry in purchases)
     input_vat = sum(entry[6] for entry in purchases)
 
+    sales_word = "entry" if len(sales) == 1 else "entries"
+    purchases_word = "entry" if len(purchases) == 1 else "entries"
+
     text = (
         f"{month_name(month)}\n"
-        f"Sales: {len(sales)} entries, {format_rands(sales_gross)} gross, "
+        f"Sales: {len(sales)} {sales_word}, {format_rands(sales_gross)} gross, "
         f"{format_rands(output_vat)} output VAT\n"
-        f"Purchases: {len(purchases)} entries, "
+        f"Purchases: {len(purchases)} {purchases_word}, "
         f"{format_rands(purchases_gross)} gross, "
         f"{format_rands(input_vat)} input VAT"
     )
@@ -659,6 +663,7 @@ def selftest():
         print(f"typed purchase:\n{handle_text(purchase)[0]}")
         print(f"typed sale:\n{handle_text(sale)[0]}")
         print(f"/sale:\n{handle_text(slash_sale)[0]}")
+        print(f"books:\n{handle_callback_data('cmd:books')[0]}")
         print(f"two-sided VAT:\n{vat_response()[0]}")
 
         PENDING_PHOTOS[1] = "Photo Purchase, R460.00, 17 Nov 2026, receipt photo"
