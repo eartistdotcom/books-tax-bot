@@ -26,7 +26,8 @@ SALE_SAMPLES = (
 
 WELCOME = (
     "I keep your books and work out the VAT.\n\n"
-    "Tap a button below, or paste a receipt like this:\n"
+    "\U0001F4F8 Send me a photo of a receipt and I will read it.\n"
+    "Or paste a line like this:\n"
     "Takealot, R1,150.00, 14 Nov 2026, office chair"
 )
 
@@ -121,6 +122,7 @@ def help_text():
     return (
         "Send one receipt per line: vendor, amount, date, description\n"
         "Example: Takealot, R1,150.00, 14 Nov 2026, office chair\n\n"
+        "\U0001F4F8 Send a photo of a receipt and I will read it for you.\n\n"
         "📒 Books lists what is recorded, 🧾 VAT totals the month, "
         "📊 Tax report sends the CSV for your accountant."
     )
